@@ -14,6 +14,7 @@ import version from '../version';
 import walletApi from '../api/wallet';
 import storage from '../storage';
 import helpers from '../utils/helpers';
+import walletUtils from '../utils/wallet';
 import MemoryStore from '../memory_store';
 import Connection from './connection';
 import SendTransaction from './sendTransaction';
@@ -84,6 +85,7 @@ class HathorWallet extends EventEmitter {
     debug = false,
     // Callback to be executed before reload data
     beforeReloadCallback = null,
+    multisig = null,
   } = {}) {
     super();
 
@@ -156,6 +158,16 @@ class HathorWallet extends EventEmitter {
 
     // This object stores pre-processed data that helps speed up the return of getBalance and getTxHistory
     this.preProcessedData = {};
+
+    // TODO add validation
+    this.multisig = multisig;
+  }
+
+  getMultisigPublicKey() {
+    if (!this.seed) throw Error;
+    const xpriv = walletUtils.getXPrivKeyFromSeed(this.seed, { network: this.getNetwork() });
+    const derived = xpriv.deriveNonCompliantChild(`m/45'/${HATHOR_BIP44_CODE}'/0'`);
+    return derived.xpubkey;
   }
 
   /**
@@ -1067,6 +1079,7 @@ class HathorWallet extends EventEmitter {
     }
     storage.setStore(this.store);
     storage.setItem('wallet:server', this.conn.currentServer);
+    storage.setItem('wallet:multisig', this.multisig);
 
     this.conn.on('state', this.onConnectionChangedState);
     this.conn.on('wallet-update', this.handleWebsocketMsg);

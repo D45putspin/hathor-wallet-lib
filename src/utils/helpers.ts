@@ -11,6 +11,7 @@ import buffer from 'buffer';
 import Long from 'long';
 import Transaction from '../models/transaction';
 import P2PKH from '../models/p2pkh';
+import P2SH from '../models/p2sh';
 import ScriptData from '../models/script_data';
 import CreateTokenTransaction from '../models/create_token_transaction';
 import Input from '../models/input';
@@ -370,6 +371,18 @@ const helpers = {
       if (output.type === 'data') {
         // Is NFT output
         outputObj = this.createNFTOutput(output.data);
+      } else if (output.type === 'p2sh') {
+        // P2SH
+        const address = new Address(output.address, { network });
+        // This will throw AddressError in case the adress is invalid
+        address.validateAddress();
+        const p2sh = new P2SH(address, { timelock: output.timelock || null });
+        const p2shScript = p2sh.createScript()
+        outputObj = new Output(
+          output.value,
+          p2shScript,
+          { tokenData: output.tokenData }
+        );
       } else if (output.type === 'p2pkh' || output.type === undefined) {
         // P2PKH
         // for compatibility reasons we will accept an output without type as p2pkh as fallback

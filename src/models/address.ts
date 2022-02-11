@@ -99,6 +99,21 @@ class Address {
     }
     return true;
   }
+
+  getType(): string {
+    this.validateAddress();
+    const addressBytes = this.decode();
+
+    const firstByte = addressBytes[0];
+    if (firstByte === this.network.versionBytes.p2pkh) {
+      return 'p2pkh';
+    } else if (firstByte === this.network.versionBytes.p2sh) {
+      return 'p2sh';
+    } else {
+      throw new AddressError('Invalid address type.');
+    }
+  }
+
 }
 
 export default Address;

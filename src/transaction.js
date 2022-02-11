@@ -10,6 +10,7 @@ import { DECIMAL_PLACES, CREATE_TOKEN_TX_VERSION, DEFAULT_TX_VERSION, TOKEN_INFO
 import { HDPrivateKey, crypto, encoding, util } from 'bitcore-lib';
 import { AddressError, OutputValueError, ConstantNotSet, CreateTokenTxInvalid, MaximumNumberInputsError, MaximumNumberOutputsError, MaximumNumberParentsError } from './errors';
 import { hexToBuffer } from './utils/buffer';
+import helpersUtils from './utils/helpers';
 import dateFormatter from './date';
 import helpers from './helpers';
 import network from './network';
@@ -21,6 +22,7 @@ import walletApi from './api/wallet';
 import { get } from 'lodash';
 import Address from './models/address';
 import P2PKH from './models/p2pkh';
+import P2SH from './models/p2sh';
 import ScriptData from './models/script_data';
 
 
@@ -259,6 +261,13 @@ const transaction = {
       // Data script for NFT
       const scriptData = new ScriptData(output.data);
       return scriptData.createScript();
+    } else if (output.type === 'p2sh') {
+      // P2SH
+      const address = new Address(output.address, { network });
+      // This will throw AddressError in case the address is invalid
+      address.validateAddress();
+      const p2sh = new P2SH(address, { timelock: output.timelock });
+      return p2sh.createScript();
     } else if (output.type === 'p2pkh' || output.type === undefined) {
       // P2PKH
       // for compatibility reasons we will accept an output without type as p2pkh as fallback
@@ -375,6 +384,26 @@ const transaction = {
       }
     }
     return data;
+  },
+
+  // TODO XXX test method with hardcoded values
+  getAllSignatures(txHex, network, pin) {
+    const tx = helpersUtils.createTxFromHex(txHex, network);
+    const hash = tx.getDataToSignHash();
+    const accessData = storage.getItem('wallet:accessData');
+    const encryptedPrivateKey = accessData.mainKey;
+    const privateKeyStr = wallet.decryptData(encryptedPrivateKey, pin);
+    const key = HDPrivateKey(privateKeyStr)
+
+    // Hardcoded value for address index of the input being spent
+    const index = 0;
+    const derivedKey = key.deriveNonCompliantChild(index);
+    const privateKey = derivedKey.privateKey;
+
+    const sig = crypto.ECDSA.sign(hash, privateKey, 'little').set({
+      nhashtype: crypto.Signature.SIGHASH_ALL
+    });
+    return util.buffer.bufferToHex(sig.toDER());
   },
 
   /*

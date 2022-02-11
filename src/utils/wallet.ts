@@ -6,12 +6,15 @@
  */
 
 
-import { crypto, HDPublicKey, HDPrivateKey, Address } from 'bitcore-lib';
+import { crypto, util, HDPublicKey, HDPrivateKey, Address } from 'bitcore-lib';
 import Mnemonic from 'bitcore-mnemonic';
 import { HD_WALLET_ENTROPY, HATHOR_BIP44_CODE } from '../constants';
+import { OP_2, OP_3, OP_CHECKMULTISIG } from '../opcodes';
 import { XPubError, InvalidWords, UncompressedPubKeyError } from '../errors';
 import Network from '../models/network';
 import _ from 'lodash';
+import { hexToBuffer } from './buffer';
+import helpers from './helpers';
 
 
 const wallet = {
@@ -332,7 +335,46 @@ const wallet = {
 
     const derivedXpub = xpub.deriveChild(derivationIndex);
     return derivedXpub.xpubkey;
-  }
+  },
+
+  createP2SHRedeemScript(pubkeys, minSignatures, index) {
+    const arr: Buffer[] = [];
+    // XXX Hardcoded get from pubkeys array len
+    arr.push(OP_2);
+    const derivedPubKeys: any[] = [];
+    for (const pk of pubkeys) {
+      const xpub = new HDPublicKey(pk);
+      const changePk = xpub.deriveChild(0);
+      const lastPk = changePk.deriveChild(index);
+      derivedPubKeys.push(lastPk.publicKey);
+    }
+    const sortedPubKeys = _.sortBy(derivedPubKeys, (publicKey) => {
+      return publicKey.toString('hex');
+    });
+
+    // We need to sort the public keys here because we are using the Address
+    // generation of the bitcore-lib
+    // They sort the public keys that are used in the redeem script generation in
+    // the Address constructor
+    for (const pk of sortedPubKeys) {
+      helpers.pushDataToStack(arr, pk.toBuffer());
+    }
+    // XXX Hardcoded get from param
+    arr.push(OP_3);
+    arr.push(OP_CHECKMULTISIG);
+    return util.buffer.concat(arr);
+  },
+
+  getP2SHInputData(signatures, redeemScript) {
+    const arr: Buffer[] = [];
+    for (const sig of signatures) {
+      // XXX would be better to have the signatures as buffer already
+      // but for testing is better to receive them as hex
+      helpers.pushDataToStack(arr, hexToBuffer(sig));
+    }
+    helpers.pushDataToStack(arr, redeemScript);
+    return util.buffer.concat(arr);
+  },
 }
 
 export default wallet;

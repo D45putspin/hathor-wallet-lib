@@ -226,8 +226,13 @@ const wallet = {
   executeGenerateWallet(words, passphrase, pin, password, loadHistory) {
     let code = new Mnemonic(words);
     let xpriv = code.toHDPrivateKey(passphrase, network.getNetwork());
-    let privkey = xpriv.deriveNonCompliantChild(`m/44'/${HATHOR_BIP44_CODE}'/0'/0`);
-
+    const multisig = true;
+    let privkey;
+    if (multisig) {
+      privkey = xpriv.deriveNonCompliantChild(`m/45'/${HATHOR_BIP44_CODE}'/0'/0`);
+    } else {
+      privkey = xpriv.deriveNonCompliantChild(`m/44'/${HATHOR_BIP44_CODE}'/0'/0`);
+    }
     let encryptedData = this.encryptData(privkey.xprivkey, pin)
     let encryptedDataWords = this.encryptData(words, password)
 
@@ -379,6 +384,25 @@ const wallet = {
     storage.setItem('wallet:accessData', data);
   },
 
+  getAddressMultisig(index) {
+    const multisigData = storage.getItem('wallet:multisig');
+    const pubkeys = multisigData.pubkeys;
+    const derivedPubKeys = [];
+    for (const pk of pubkeys) {
+      const xpub = new HDPublicKey(pk);
+      const changePk = xpub.deriveChild(0);
+      const lastPk = changePk.deriveChild(index);
+      derivedPubKeys.push(lastPk.publicKey);
+    }
+    // Using the Address constructor has some benefits
+    // 1. We return the same address object from bitcore-libe as we used to get from the p2pkh address, then we handle it the same
+    // But has some problems
+    // Bitcore-lib sorts the public keys array internally before generating the redeem script
+    // so we need to sort them in the derived path level also when creating our redeem script (I think this is fine and the design has this note)
+    const address = new Address(derivedPubKeys, multisigData.minimumSignatures, network.getNetwork());
+    return address;
+  },
+
   /**
    * Load the history for each of the addresses of a new generated wallet
    * We always search until the GAP_LIMIT. If we have any history in the middle of the searched addresses
@@ -412,8 +436,14 @@ const wallet = {
       const stopIndex = startIndex + count;
       for (var i=startIndex; i<stopIndex; i++) {
         // Generate each key from index, encrypt and save
-        let key = xpub.deriveChild(i);
-        var address = Address(key.publicKey, network.getNetwork());
+        const multisig = true;
+        let address;
+        if (multisig) {
+          address = this.getAddressMultisig(i);
+        } else {
+          const key = xpub.deriveChild(i);
+          address = Address(key.publicKey, network.getNetwork());
+        }
         dataJson.keys[address.toString()] = {privkey: null, index: i};
         addresses.push(address.toString());
 
@@ -951,15 +981,21 @@ const wallet = {
    * @inner
    */
   generateNewAddress(connection = null) {
-    const accessData = this.getWalletAccessData();
-    const xpub = HDPublicKey(accessData.xpubkey);
-
     // Get last shared index to discover new index
     const lastSharedIndex = this.getLastSharedIndex();
-    let newIndex = lastSharedIndex + 1;
+    const newIndex = lastSharedIndex + 1;
+    const multisig = true;
+    let newAddress;
 
-    const newKey = xpub.deriveChild(newIndex);
-    const newAddress = Address(newKey.publicKey, network.getNetwork());
+    if (multisig) {
+      newAddress = this.getAddressMultisig(newIndex);
+    } else {
+      const accessData = this.getWalletAccessData();
+      const xpub = HDPublicKey(accessData.xpubkey);
+      const newKey = xpub.deriveChild(newIndex);
+      newAddress = Address(newKey.publicKey, network.getNetwork());
+    }
+
 
     // Update address data and last generated indexes
     this.updateAddress(newAddress.toString(), newIndex);
@@ -1007,10 +1043,16 @@ const wallet = {
    * @inner
    */
   getAddressAtIndex(index) {
-    const accessData = this.getWalletAccessData();
-    const xpub = HDPublicKey(accessData.xpubkey);
-    const newKey = xpub.deriveChild(index);
-    const address = Address(newKey.publicKey, network.getNetwork());
+    const multisig = true;
+    let address;
+    if (multisig) {
+      address = this.getAddressMultisig(index);
+    } else {
+      const accessData = this.getWalletAccessData();
+      const xpub = HDPublicKey(accessData.xpubkey);
+      const newKey = xpub.deriveChild(index);
+      address = Address(newKey.publicKey, network.getNetwork());
+    }
     return address.toString();
   },
 
@@ -2145,9 +2187,15 @@ const wallet = {
       // Setting last shared address, if necessary
       const candidateIndex = maxIndex + 1;
       if (candidateIndex > lastSharedIndex) {
-        const xpub = HDPublicKey(this.getWalletAccessData().xpubkey);
-        const key = xpub.deriveChild(candidateIndex);
-        const address = Address(key.publicKey, network.getNetwork()).toString();
+        const multisig = true;
+        let address;
+        if (multisig) {
+          address = this.getAddressMultisig(candidateIndex);
+        } else {
+          const xpub = HDPublicKey(this.getWalletAccessData().xpubkey);
+          const key = xpub.deriveChild(candidateIndex);
+          address = Address(key.publicKey, network.getNetwork()).toString();
+        }
         newSharedIndex = candidateIndex;
         newSharedAddress = address;
         this.updateAddress(address, candidateIndex);
